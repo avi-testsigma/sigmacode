@@ -9,7 +9,11 @@ import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/e
 import { type ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { ARCUS_MODE } from "./branding";
 import { resolveStorage } from "./lib/storage";
+
+// Arcus Dev Stack has no terminal drawer: terminals may still run, but they never open it.
+const TERMINAL_DRAWER_ENABLED = !ARCUS_MODE;
 import {
   DEFAULT_THREAD_TERMINAL_HEIGHT,
   DEFAULT_THREAD_TERMINAL_ID,
@@ -285,7 +289,7 @@ function upsertTerminalIntoGroups(
     terminalGroups.push({ id: nextGroupId, terminalIds: [terminalId] });
     return normalizeThreadTerminalUiState({
       ...normalized,
-      terminalOpen: true,
+      terminalOpen: TERMINAL_DRAWER_ENABLED,
       terminalIds,
       activeTerminalId: terminalId,
       terminalGroups,
@@ -339,7 +343,7 @@ function upsertTerminalIntoGroups(
 
   return normalizeThreadTerminalUiState({
     ...normalized,
-    terminalOpen: true,
+    terminalOpen: TERMINAL_DRAWER_ENABLED,
     terminalIds,
     activeTerminalId: terminalId,
     terminalGroups,
@@ -349,11 +353,12 @@ function upsertTerminalIntoGroups(
 
 function setThreadTerminalOpen(state: ThreadTerminalUiState, open: boolean): ThreadTerminalUiState {
   const normalized = normalizeThreadTerminalUiState(state);
-  if (open && normalized.terminalIds.length === 0) {
+  const nextOpen = open && TERMINAL_DRAWER_ENABLED;
+  if (nextOpen && normalized.terminalIds.length === 0) {
     return upsertTerminalIntoGroups(normalized, DEFAULT_THREAD_TERMINAL_ID, "new");
   }
-  if (normalized.terminalOpen === open) return normalized;
-  return { ...normalized, terminalOpen: open };
+  if (normalized.terminalOpen === nextOpen) return normalized;
+  return { ...normalized, terminalOpen: nextOpen };
 }
 
 function setThreadTerminalHeight(

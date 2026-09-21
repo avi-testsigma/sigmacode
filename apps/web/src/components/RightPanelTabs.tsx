@@ -1,5 +1,6 @@
 import { pullRequestHostOf, type SourceControlProviderKind } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { ARCUS_MODE } from "~/branding";
 import { useProjects, useServerConfigs, useThreadShells } from "~/state/entities";
 import {
   threadPullRequestKeysEqual,
@@ -411,7 +412,11 @@ function RightPanelEmptyState(props: {
 
   type SurfaceAction = (typeof actions)[number];
 
-  const availableActions = actions.filter((action) => action.available);
+  // Arcus Dev Stack offers only the live preview. Matched on the handler, not the label, so a
+  // renamed entry cannot silently drop the browser too. Letter shortcuts read this list.
+  const availableActions = actions.filter(
+    (action) => action.available && (!ARCUS_MODE || action.onClick === props.onAddBrowser),
+  );
   const highlightIndex =
     availableActions.length === 0 ? -1 : Math.min(highlight, availableActions.length - 1);
 

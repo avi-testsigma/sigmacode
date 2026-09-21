@@ -94,6 +94,7 @@ export class DesktopEnvironment extends Context.Service<
 >()("@t3tools/desktop/app/DesktopEnvironment") {}
 
 const APP_BASE_NAME = "T3 Code";
+const ARCUS_APP_BASE_NAME = "Arcus Dev Stack";
 
 function resolveDesktopAppStageLabel(input: {
   readonly isDevelopment: boolean;
@@ -109,8 +110,20 @@ function resolveDesktopAppStageLabel(input: {
 export function resolveDesktopAppBranding(input: {
   readonly isDevelopment: boolean;
   readonly appVersion: string;
+  readonly arcusMode?: boolean;
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
+  if (input.arcusMode) {
+    // Designers only ever see the product name; the stage suffix is for telling dev builds apart.
+    return {
+      baseName: ARCUS_APP_BASE_NAME,
+      stageLabel,
+      displayName: input.isDevelopment
+        ? `${ARCUS_APP_BASE_NAME} (${stageLabel})`
+        : ARCUS_APP_BASE_NAME,
+      arcusMode: true,
+    };
+  }
   return {
     baseName: APP_BASE_NAME,
     stageLabel,
@@ -164,10 +177,16 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
+  // Arcus Dev Stack keeps its own state so it never adopts a T3 Code install's projects.
+  // An explicit T3CODE_HOME still wins; the dev runner sets one per worktree.
+  const t3Home =
+    config.arcusMode && Option.isNone(config.t3Home)
+      ? Option.some(path.join(homeDirectory, ".arcus-dev-stack"))
+      : config.t3Home;
   const baseDir = resolveDesktopBaseDir({
     homeDirectory,
     joinPath: path.join,
-    t3Home: config.t3Home,
+    t3Home,
   });
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
@@ -178,16 +197,28 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const branding = resolveDesktopAppBranding({
     isDevelopment,
     appVersion: input.appVersion,
+    arcusMode: config.arcusMode,
   });
   const displayName = branding.displayName;
   const stateDir = resolveDesktopStateDir({
     baseDir,
     isDevelopment,
     joinPath: path.join,
-    t3Home: config.t3Home,
+    t3Home,
   });
-  const userDataDirName = isDevelopment ? "t3code-dev" : "t3code";
-  const legacyUserDataDirName = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+  const userDataDirName = config.arcusMode
+    ? isDevelopment
+      ? "arcus-dev-stack-dev"
+      : "arcus-dev-stack"
+    : isDevelopment
+      ? "t3code-dev"
+      : "t3code";
+  // A legacy T3 Code folder would otherwise be adopted as Arcus's userData.
+  const legacyUserDataDirName = config.arcusMode
+    ? userDataDirName
+    : isDevelopment
+      ? "T3 Code (Dev)"
+      : "T3 Code (Alpha)";
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",
@@ -237,7 +268,13 @@ const make = Effect.fn("desktop.environment.make")(function* (
     branding,
     displayName,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
-      isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
+      config.arcusMode
+        ? isDevelopment
+          ? "com.testsigma.arcusdevstack.dev"
+          : "com.testsigma.arcusdevstack"
+        : isDevelopment
+          ? "com.t3tools.t3code.dev"
+          : "com.t3tools.t3code",
     ),
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
     linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",

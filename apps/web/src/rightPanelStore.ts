@@ -17,6 +17,7 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import { ARCUS_MODE } from "./branding";
 import { resolveStorage } from "./lib/storage";
 
 const RIGHT_PANEL_KINDS = [
@@ -271,13 +272,19 @@ const upsertSurface = (
   current: ThreadRightPanelState,
   surface: RightPanelSurface,
   activate = true,
-): ThreadRightPanelState => ({
-  isOpen: true,
-  surfaces: current.surfaces.some((entry) => entry.id === surface.id)
-    ? current.surfaces
-    : [...current.surfaces, surface],
-  activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
-});
+): ThreadRightPanelState => {
+  // Arcus Dev Stack shows only the live preview beside the chat. Every surface is added here.
+  if (ARCUS_MODE && surface.kind !== "preview") {
+    return current;
+  }
+  return {
+    isOpen: true,
+    surfaces: current.surfaces.some((entry) => entry.id === surface.id)
+      ? current.surfaces
+      : [...current.surfaces, surface],
+    activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
+  };
+};
 
 const updateThread = (
   byThreadKey: Record<string, ThreadRightPanelState>,

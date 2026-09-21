@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
+import { ARCUS_MODE } from "../branding";
 import { isElectron } from "../env";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
 import {
@@ -154,6 +155,9 @@ function ProjectProjectionRetention() {
   return null;
 }
 
+// Arcus Dev Stack is a single chat: the sidebar stays shut, so ignore every attempt to toggle it.
+const ignoreSidebarOpenChange = () => {};
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
@@ -237,6 +241,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         defaultOpen
+        // Settings keeps its nav, since it has no other way to move between pages.
+        open={ARCUS_MODE ? isOnSettings : undefined}
+        onOpenChange={ARCUS_MODE ? ignoreSidebarOpenChange : undefined}
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
@@ -268,7 +275,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
         {children}
-        <SidebarControl />
+        {ARCUS_MODE ? null : <SidebarControl />}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );
