@@ -242,8 +242,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         defaultOpen
         // Settings keeps its nav, since it has no other way to move between pages.
-        open={ARCUS_MODE ? isOnSettings : undefined}
-        onOpenChange={ARCUS_MODE ? ignoreSidebarOpenChange : undefined}
+        {...(ARCUS_MODE ? { open: isOnSettings, onOpenChange: ignoreSidebarOpenChange } : {})}
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
