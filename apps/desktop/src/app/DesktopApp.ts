@@ -32,6 +32,7 @@ import * as DesktopRemoteUpdates from "../updates/DesktopRemoteUpdates.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopSnapShot from "../snapShot/DesktopSnapShot.ts";
 import * as DesktopWslBackend from "../wsl/DesktopWslBackend.ts";
+import { startArcusStack } from "../stack/startArcusStack.ts";
 
 const DEFAULT_DESKTOP_BACKEND_PORT = 3773;
 const MAX_TCP_PORT = 65_535;
@@ -254,6 +255,9 @@ const bootstrap = Effect.gen(function* () {
     // in parallel rather than blocking primary readiness on a possibly
     // slow first wsl.exe spawn.
     yield* Effect.forkScoped(wslBackend.reconcile);
+    if (environment.branding.arcusMode) {
+      yield* startArcusStack;
+    }
   }
 }).pipe(Effect.withSpan("desktop.bootstrap"));
 
