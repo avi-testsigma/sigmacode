@@ -1,16 +1,14 @@
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
-import * as Scope from "effect/Scope";
-import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { ensureContainers } from "./Containers.ts";
+import { spawnDetachedService, type DetachedService } from "./detachedService.ts";
 import { runFixer } from "./Fixers.ts";
 import { isHealthy, waitUntilHealthy } from "./Health.ts";
 import { stopListenerGroup } from "./ListenerGroups.ts";
@@ -32,14 +30,9 @@ const MAX_RESTARTS_IN_WINDOW = 3;
 const ADOPTED_MISSES_BEFORE_RESTART = 3;
 const BUILD_OUTPUT_TAIL = 4000;
 
-interface ServiceRun {
-  readonly scope: Scope.Closeable;
-  readonly handle: ChildProcessSpawner.ChildProcessHandle;
-}
-
 interface ServiceState {
   /** Set while this app spawned the process and owns its lifetime. */
-  readonly run: ServiceRun | null;
+  readonly run: DetachedService | null;
   /** Set when a healthy instance was already running and was taken over, not duplicated. */
   readonly adopted: boolean;
   readonly misses: number;
@@ -74,7 +67,6 @@ export const makeArcusStack = Effect.fn("arcus.stack.make")(function* (input: {
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   // Captured so run and stop can be forked and finalized without dragging these requirements along.
   const services = yield* Effect.context<
     | FileSystem.FileSystem
@@ -121,31 +113,14 @@ export const makeArcusStack = Effect.fn("arcus.stack.make")(function* (input: {
       return yield* new StackCommandError({ argv: service.run, cause: "empty command" });
     }
     yield* fs.makeDirectory(input.logDir, { recursive: true });
-    const scope = yield* Scope.make("sequential");
-    const handle = yield* spawner
-      .spawn(
-        ChildProcess.make(executable, args, {
-          cwd: expand(service.cwd),
-          // A stale cmux shim left in NODE_OPTIONS breaks every node invocation.
-          env: { ...service.env, NODE_OPTIONS: "" },
-          extendEnv: true,
-          stdin: "ignore",
-          stdout: "pipe",
-          stderr: "pipe",
-          killSignal: "SIGTERM",
-          forceKillAfter: SERVICE_STOP_GRACE,
-        }),
-      )
-      .pipe(
-        Scope.provide(scope),
-        Effect.onError(() => Scope.close(scope, Exit.void)),
-      );
-    const logPath = path.join(input.logDir, `${service.id}.log`);
-    yield* Effect.forkIn(
-      handle.all.pipe(Stream.run(fs.sink(logPath, { flag: "a" })), Effect.ignore),
-      scope,
-    );
-    return { scope, handle } satisfies ServiceRun;
+    return yield* spawnDetachedService({
+      executable,
+      args,
+      cwd: expand(service.cwd),
+      // A stale cmux shim left in NODE_OPTIONS breaks every node invocation.
+      env: { ...service.env, NODE_OPTIONS: "" },
+      logPath: path.join(input.logDir, `${service.id}.log`),
+    });
   });
 
   const startService = Effect.fn("arcus.stack.start")(function* (service: StackService) {
@@ -155,10 +130,7 @@ export const makeArcusStack = Effect.fn("arcus.stack.make")(function* (input: {
     yield* ensureBuilt(service);
     const run = yield* spawnService(service);
     yield* updateState(service.id, { run, adopted: false, misses: 0 });
-    yield* Effect.logInfo("arcus.stack.serviceStarted", {
-      service: service.id,
-      pid: run.handle.pid,
-    });
+    yield* Effect.logInfo("arcus.stack.serviceStarted", { service: service.id, pid: run.pid });
     yield* waitUntilHealthy({
       service: service.id,
       url: service.health.url,
@@ -205,14 +177,12 @@ export const makeArcusStack = Effect.fn("arcus.stack.make")(function* (input: {
       return;
     }
     if (state.run !== null) {
-      const alive = yield* state.run.handle.isRunning.pipe(
-        Effect.catch(() => Effect.succeed(false)),
-      );
-      if (alive) {
+      if (yield* state.run.isRunning) {
         return;
       }
       yield* Effect.logWarning("arcus.stack.serviceExited", { service: service.id });
-      yield* Scope.close(state.run.scope, Exit.void);
+      // The service process is gone; clear any of its children still holding the port.
+      yield* state.run.stop(SERVICE_STOP_GRACE);
       yield* restart(service);
       return;
     }
@@ -259,7 +229,7 @@ export const makeArcusStack = Effect.fn("arcus.stack.make")(function* (input: {
     for (const service of [...input.manifest.services].reverse()) {
       const state = yield* stateOf(service.id);
       if (state.run !== null) {
-        yield* Scope.close(state.run.scope, Exit.void);
+        yield* state.run.stop(SERVICE_STOP_GRACE);
       } else if (state.adopted) {
         yield* stopListenerGroup(service.port).pipe(Effect.ignore);
       }
